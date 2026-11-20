@@ -1,87 +1,80 @@
-<!doctype html>
-<html lang="ku" dir="rtl">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HAMA DYLIB IMAGE SWAPPER</title>
-<style>
-:root{color-scheme:dark;--bg:#090d16;--panel:#121a29;--line:#26364c;--blue:#2695ff;--muted:#9eafc5}
-*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#080c14,#101b2c);color:#eef5ff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:22px}
-main{max-width:850px;margin:auto}.brand{text-align:center;margin:18px 0 26px}.brand h1{font-size:25px;letter-spacing:1px;margin:0;color:#62b5ff}.brand p{color:var(--muted)}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;margin:14px 0}
-button,.pick{display:inline-block;background:var(--blue);color:white;border:0;border-radius:12px;padding:13px 17px;font-size:15px;font-weight:700;cursor:pointer}
-button:disabled{opacity:.4;cursor:not-allowed}.status{color:#a9c9ed;white-space:pre-wrap;line-height:1.7}.muted{color:var(--muted);font-size:13px}
-#items{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:13px}.asset{background:#0c1421;border:1px solid var(--line);border-radius:14px;padding:12px;min-width:0}.asset img{width:100%;height:160px;object-fit:contain;background:#080c13;border-radius:9px}.asset h3{font-size:14px;margin:9px 0 5px}.asset p{font-size:12px;color:var(--muted);direction:ltr;text-align:left;overflow-wrap:anywhere}
-input[type=file]{display:none}.warning{border-right:3px solid #e7a93d;padding:10px 12px;background:#302718;border-radius:8px;color:#ffdf9b;font-size:13px;line-height:1.7}
-</style></head>
-<body><main>
-<header class="brand"><h1>HAMA ⚡ DYLIB IMAGE SWAPPER</h1><p>پشکنین و گۆڕینی وێنەی ناو فایلەکانی DYLIB</p></header>
-<section class="panel">
-<h2>١. دایلیبەکەت هەڵبژێرە</h2>
-<label class="pick" for="dylib">هەڵبژاردنی DYLIB</label><input id="dylib" type="file" accept=".dylib,.bin,application/octet-stream">
-<p class="muted">فایلەکە تەنها لەسەر ئامێرەکەت پشکنین دەکرێت؛ بۆ هیچ سێرڤەرێک نانێردرێت.</p><div id="status" class="status">چاوەڕێی هەڵبژاردنی دایلیب...</div>
-</section>
-<section class="panel" id="results" hidden><h2>٢. وێنە دۆزراوەکان</h2><p class="muted">وێنەکە هەڵبژێرە و پێش گۆڕین پێشبینینی بکە.</p><div id="items"></div></section>
-<section class="panel" id="output" hidden><h2>٣. دایلیبی نوێ</h2><button id="download" disabled>داگرتنی دایلیبی گۆڕدراو</button><p class="muted" id="outinfo"></p></section>
-<section class="panel warning">ئاگاداری: تەنها شوێنی بایتەکانی وێنە دەگۆڕدرێت و قەبارەی فایلەکە دەپارێزرێت. هەموو DYLIB ـەکان وێنەیان بە شێوەی ئاسایی هەڵناگرن؛ گۆڕینی وێنە بەڵێنی کارکردنی فایل یان گونجانی لەگەڵ ئەپەکە نادات. پێش تاقیکردنەوە هەمیشە کۆپییەکی backup هەڵبگرە.</section>
-</main>
-<script>
-const $=s=>document.querySelector(s);let original=null,chosen=null,patched=null,assetList=[];
-function readU32BE(d,p){return d[p]*16777216+(d[p+1]<<16)+(d[p+2]<<8)+d[p+3]}
-async function validImage(blob){try{const b=await createImageBitmap(blob);return {w:b.width,h:b.height,bitmap:b}}catch(e){return null}}
-async function scan(buf){
- const d=new Uint8Array(buf),found=[];
- for(let i=0;i<d.length-2;){
-  if(d[i]===255&&d[i+1]===216&&d[i+2]===255){
-   let e=i+3;while(e<d.length-1&&!(d[e]===255&&d[e+1]===217))e++;
-   if(e<d.length-1){const end=e+2,blob=new Blob([d.slice(i,end)],{type:'image/jpeg'}),v=await validImage(blob);if(v){found.push({start:i,end,blob,fmt:'JPEG',w:v.w,h:v.h});v.bitmap.close()}i=end;}else i+=3;
-  }else i++;
- }
- const sig=[137,80,78,71,13,10,26,10];
- for(let i=0;i<d.length-8;i++){
-  if(sig.every((v,j)=>d[i+j]===v)){
-   let p=i+8,done=false;
-   while(p+12<=d.length){const n=readU32BE(d,p),type=String.fromCharCode(...d.slice(p+4,p+8));if(n>d.length-p-12)break;p+=12+n;if(type==='IEND'){const blob=new Blob([d.slice(i,p)],{type:'image/png'}),v=await validImage(blob);if(v){found.push({start:i,end:p,blob,fmt:'PNG',w:v.w,h:v.h});v.bitmap.close()}done=true;break}}
-   if(done)i=p-1;
+
+async function scan(buf) {
+  const d = new Uint8Array(buf);
+  const found = [];
+
+  // Known image location
+  const knownOffset = 6681009;
+  const knownBytes = 9284;
+
+  if (knownOffset + knownBytes <= d.length) {
+    const knownBlob = new Blob(
+      [d.slice(knownOffset, knownOffset + knownBytes)],
+      { type: 'image/jpeg' }
+    );
+
+    const knownImage = await validImage(knownBlob);
+
+    if (knownImage) {
+      found.push({
+        start: knownOffset,
+        end: knownOffset + knownBytes,
+        blob: knownBlob,
+        fmt: 'JPEG',
+        w: knownImage.w,
+        h: knownImage.h
+      });
+
+      knownImage.bitmap.close();
+    }
   }
- }
- found.sort((a,b)=>a.start-b.start);
- return found.filter((x,i)=>!found.slice(0,i).some(y=>x.start<y.end&&x.end>y.start));
+
+  // Scan other JPEG images
+  for (let i = 0; i < d.length - 2;) {
+    if (d[i] === 255 && d[i+1] === 216 && d[i+2] === 255) {
+      let e = i + 3;
+
+      while (
+        e < d.length - 1 &&
+        !(d[e] === 255 && d[e+1] === 217)
+      ) e++;
+
+      if (e < d.length - 1) {
+        const end = e + 2;
+        const blob = new Blob(
+          [d.slice(i, end)],
+          { type: 'image/jpeg' }
+        );
+
+        const v = await validImage(blob);
+
+        if (v) {
+          found.push({
+            start: i,
+            end,
+            blob,
+            fmt: 'JPEG',
+            w: v.w,
+            h: v.h
+          });
+
+          v.bitmap.close();
+        }
+
+        i = end;
+      } else {
+        i += 3;
+      }
+    } else {
+      i++;
+    }
+  }
+
+  found.sort((a, b) => a.start - b.start);
+
+  return found.filter((x, i) =>
+    !found.slice(0, i).some(
+      y => x.start < y.end && x.end > y.start
+    )
+  );
 }
-function showAssets(){
- $('#items').innerHTML='';
- assetList.forEach((a,i)=>{
-  const url=URL.createObjectURL(a.blob),el=document.createElement('article');el.className='asset';
-  const img=document.createElement('img');img.src=url;img.alt='Embedded image '+(i+1);
-  const h=document.createElement('h3');h.textContent='وێنە '+(i+1)+' — '+a.fmt;
-  const p=document.createElement('p');p.textContent='offset: '+a.start+' | bytes: '+(a.end-a.start)+' | '+a.w+'×'+a.h;
-  const b=document.createElement('button');b.textContent='ئەم وێنەیە بگۆڕە';b.onclick=()=>chooseTarget(i);
-  el.append(img,h,p,b);$('#items').append(el);
- });
-}
-function chooseTarget(i){chosen=assetList[i];if(!confirm('دڵنیایت دەتەوێت ئەم وێنەیە بگۆڕیت؟'))return;const f=document.createElement('input');f.type='file';f.accept='image/png,image/jpeg';f.onchange=()=>{if(f.files[0])replaceImage(f.files[0])};f.click()}
-async function encodeForSlot(file,target){
- const bmp=await createImageBitmap(file),c=document.createElement('canvas');c.width=target.w;c.height=target.h;const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);ctx.drawImage(bmp,0,0,c.width,c.height);bmp.close();
- const type=target.fmt==='PNG'?'image/png':'image/jpeg',slot=target.end-target.start;
- if(type==='image/png'){const blob=await new Promise(r=>c.toBlob(r,type));if(!blob||blob.size>slot)throw Error('PNG ـی نوێ لە شوێنی وێنە کۆنەکە گەورەترە. تکایە JPG هەڵبژێرە.');return new Uint8Array(await blob.arrayBuffer())}
- for(let q=0.95;q>=0.20;q-=0.05){const blob=await new Promise(r=>c.toBlob(r,type,q));if(blob&&blob.size<=slot)return new Uint8Array(await blob.arrayBuffer())}
- throw Error('وێنەی JPG هێشتا گەورەیە؛ وێنەیەکی کەم‌قەبارەتر هەڵبژێرە.');
-}
-async function replaceImage(file){
- try{
-  $('#status').textContent='وێنەکە ئامادە دەکرێت...';
-  const bytes=await encodeForSlot(file,chosen),slot=chosen.end-chosen.start;
-  const out=new Uint8Array(original.slice(0));out.set(bytes,chosen.start);out.fill(0,chosen.start+bytes.length,chosen.end);
-  patched=new Blob([out],{type:'application/octet-stream'});
-  $('#output').hidden=false;$('#download').disabled=false;
-  $('#outinfo').textContent='شوێنی گۆڕدراو: '+chosen.start+' | قەبارەی slot: '+slot+' bytes | قەبارەی فایل پارێزراوە.';
-  $('#status').textContent='وێنەکە لە شوێنی هەڵبژێردراودا دانرا. دایلیبی نوێ دابگرە و backup ـی فایلە کۆنەکە بهێڵەوە.';
- }catch(e){$('#status').textContent='هەڵە: '+e.message}
-}
-$('#dylib').addEventListener('change',async e=>{
- const f=e.target.files[0];if(!f)return;original=await f.arrayBuffer();patched=null;$('#output').hidden=true;$('#status').textContent='پشکنینی فایل و دۆزینەوەی وێنەکان...';
- assetList=await scan(original);$('#results').hidden=false;showAssets();
- $('#status').textContent='تەواو بوو. قەبارەی فایل: '+f.size+' bytes. وێنەی پشتڕاستکراوی دۆزراو: '+assetList.length;
- if(!assetList.length)$('#items').textContent='هیچ وێنەی پشتڕاستکراوەی JPEG/PNG نەدۆزرایەوە.';
-});
-$('#download').onclick=()=>{if(!patched)return;const a=document.createElement('a');a.href=URL.createObjectURL(patched);a.download='HAMA_DYLIB_IMAGE_REPLACED.dylib';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000)};
-</script></body></html>
